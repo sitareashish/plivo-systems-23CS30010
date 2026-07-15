@@ -1,0 +1,6 @@
+sender
+receiver
+*.o
+playout_log.json
+relay_stats.json
+.DS_Store
