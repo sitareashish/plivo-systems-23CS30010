@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Flaky Network — UDP Playout Solution</title>
+<style>
+  :root{--bg:#0f1115;--card:#171a21;--ink:#e8ecf3;--mut:#9aa4b2;--acc:#5b9dff;--ok:#39d98a;--bad:#ff6b6b;--line:#232833}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:32px}
+  .wrap{max-width:920px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:18px;margin:28px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .sub{color:var(--mut);margin-bottom:18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:14px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card .k{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  .card .v{font-size:22px;font-weight:700;margin-top:4px}
+  code{background:#0c0e12;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left}
+  th{background:#12151c;color:var(--mut);font-weight:600}
+  .ok{color:var(--ok);font-weight:700}
+  .bad{color:var(--bad);font-weight:700}
+  ul{margin:8px 0 8px 18px}
+  .pill{display:inline-block;background:#12151c;border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--acc);font-size:12px;margin-right:6px}
+  footer{color:var(--mut);font-size:12px;margin-top:28px;border-top:1px solid var(--line);padding-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>The Flaky Network — UDP Real-Time Playout</h1>
+  <div class="sub">Sender-side FEC + receiver-side jitter buffer with a dedicated deadline-driven playout thread. C++17, POSIX sockets, std threading.</div>
+  <div class="grid">
+    <div class="card"><div class="k">Overhead</div><div class="v">1.55&times;</div><div class="k">cap 2.0&times;</div></div>
+    <div class="card"><div class="k">Profile A delay</div><div class="v">55 ms</div><div class="k">0.67&ndash;0.75% miss</div></div>
+    <div class="card"><div class="k">Profile B delay</div><div class="v">110 ms</div><div class="k">0.47&ndash;0.80% miss</div></div>
+    <div class="card"><div class="k">Feedback traffic</div><div class="v">0 B</div><div class="k">no ACK / NAK</div></div>
+  </div>
+  <h2>Approach</h2>
+  <ul>
+    <li><span class="pill">FEC</span>Per K=2 frames: 2 DATA packets + 1 XOR-parity; receiver rebuilds any single lost packet from the survivors. No retransmission.</li>
+    <li><span class="pill">Why not duplication</span>Overhead scored vs raw n&times;160 payload, so 2 payloads/packet is already 2.0&times; before headers. Parity amortises to 1.55&times;.</li>
+    <li><span class="pill">Jitter buffer</span>Sole-reader receive thread; sequence-indexed buffer + FEC recovery, absorbs reorder &amp; duplicates.</li>
+    <li><span class="pill">Playout thread</span>In-order, waits on a condition_variable until present or 2 ms before deadline. Self-clocking.</li>
+  </ul>
+  <h2>Measured results</h2>
+  <table>
+    <tr><th>Profile</th><th>loss / jitter</th><th>delay</th><th>seed</th><th>miss %</th><th>overhead</th><th>result</th></tr>
+    <tr><td>A</td><td>2%, 10&ndash;40 ms</td><td>50 ms</td><td>1</td><td>1.07%</td><td>1.55&times;</td><td class="bad">INVALID</td></tr>
+    <tr><td>A</td><td>2%, 10&ndash;40 ms</td><td><b>55 ms</b></td><td>1</td><td>0.67%</td><td>1.55&times;</td><td class="ok">VALID</td></tr>
+    <tr><td>B</td><td>5%, 20&ndash;80 ms</td><td>90 ms</td><td>1</td><td>1.75%</td><td>1.55&times;</td><td class="bad">INVALID</td></tr>
+    <tr><td>B</td><td>5%, 20&ndash;80 ms</td><td><b>100 ms</b></td><td>1</td><td>0.87%</td><td>1.55&times;</td><td class="ok">VALID</td></tr>
+    <tr><td>B</td><td>5%, 20&ndash;80 ms</td><td><b>110 ms</b></td><td>1</td><td>0.80%</td><td>1.55&times;</td><td class="ok">VALID</td></tr>
+    <tr><td>B</td><td>5%, 20&ndash;80 ms</td><td><b>110 ms</b></td><td>3</td><td>0.47%</td><td>1.55&times;</td><td class="ok">VALID</td></tr>
+  </table>
+  <h2>Key trade-off</h2>
+  <p>Interleaving (FEC_STRIDE&gt;1) hardens bursts but adds up to S&times;20 ms recovery latency; since the score rewards low delay it hurt (mild burst @60 ms: stride 1 = 1.25% vs stride 4 = 3.00%). Shipped default: FEC_STRIDE=1.</p>
+  <footer>Only sender.cpp, receiver.cpp, Makefile changed. Build: make. Run: python3 run.py --profile profiles/B.json --delay_ms 110</footer>
+</div>
+</body>
+</html>
